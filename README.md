@@ -2,7 +2,7 @@
 
 A Django REST API that plans a truck trip between two US locations. It returns the driving route, the cheapest set of fuel stops along it, and the total fuel cost. The truck has a 500-mile range and gets 10 mpg.
 
-- **One routing call per trip.** Geocoding plus routing makes at most 3 external calls, and repeat trips make none (everything is cached).
+- **One routing call per trip.** Plain `City, ST` inputs are geocoded offline from a bundled Census index, so a typical trip makes exactly one external call. Addresses add at most one geocoding call each, and repeat trips make none (everything is cached).
 - **Fast.** About 10–200 ms when cached, including a coast-to-coast trip. The first time a trip is requested it takes about 2–5 s, almost all of it spent waiting for the public routing server.
 - **A real optimizer.** It uses the greedy "gas station problem" algorithm, which gives the cheapest plan. A randomised test checks it against an exact dynamic program.
 - **Map output.** Each response includes GeoJSON and an encoded polyline. There is also an HTML page that draws the route on a Leaflet map.
@@ -49,7 +49,7 @@ No API keys are needed. All the external services are free and keyless.
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1` | Comma-separated |
 | `DJANGO_CACHE_DIR` | `.cache/` | File cache for geocodes and routes |
 | `OSRM_URL` | `https://router.project-osrm.org` | Point to a self-hosted OSRM |
-| `NOMINATIM_URL` / `PHOTON_URL` | public instances | Geocoders |
+| `NOMINATIM_URL` / `CENSUS_GEOCODER_URL` / `PHOTON_URL` | public instances | Online geocoders for addresses and landmarks |
 | `FORCE_IPV4` | `true` | Sends outbound HTTP over IPv4 only. This avoids ~20 s stalls on hosts with broken IPv6 |
 
 ### Deploying to Render
@@ -150,7 +150,7 @@ Returns `{"status": "ok", "stations_loaded": 6621}`.
 ## How it works
 
 ```
-start, finish ──► geocode (Nominatim → Photon fallback, cached)        ≤ 2 calls
+start, finish ──► geocode (offline City, ST index → Nominatim → Census → Photon, cached)  0–2 calls
               ──► route   (OSRM, full geometry, one call, cached)      ≤ 1 call
               ──► corridor search over the in-memory station index      numpy, ~10–50 ms
               ──► greedy optimizer                                      < 5 ms
@@ -200,7 +200,7 @@ This is the textbook algorithm for the fixed-route gas station problem, and it i
 | Decision | Why |
 | --- | --- |
 | **OSRM** for routing | Free and keyless. A single call covers a coast-to-coast trip (Valhalla's public server caps a request at about 1,500 km). |
-| **Nominatim first, Photon fallback** for user input | Both are free and keyless and filtered to the USA. Whichever answers is cached for a week. `"lat,lon"` input skips geocoding entirely. |
+| **Offline `City, ST` index, then Nominatim → US Census → Photon** for user input | `data/us_places.json` (built from the Census Gazetteer with `manage.py build_place_index`) answers city inputs such as `Austin, TX` or `Austin, Texas` with no network call, which matters on shared cloud IPs where Nominatim often answers HTTP 429. Addresses and landmarks go to the free, keyless online geocoders in turn, filtered to the USA and cached for a week. `"lat,lon"` input skips geocoding entirely. |
 | **City-level station locations** | The CSV gives highway-exit descriptions such as `I-44, EXIT 283 & US-69`, which free geocoders cannot resolve reliably. City centroids from the Census are deterministic and need no network. The cost is a few miles of position error, which the 10-mile default corridor absorbs. |
 | **Geocoding offline, committed cache** | API requests never geocode stations. Setup has no rate limits and gives the same result every time. |
 | **In-memory numpy index instead of PostGIS** | About 6,600 points fit easily in memory, and vectorised distance maths takes milliseconds. SQLite keeps setup to a single command. With much larger data, PostGIS (`ST_DWithin` on a geography index) would be the next step. |
@@ -238,9 +238,9 @@ stations/
   models.py             FuelStation
   geocoding.py          CSV parsing, Census Gazetteer matching, Nominatim fallback
   index.py              in-memory numpy station index
-  management/commands/  geocode_cities (offline, one-off), load_stations
+  management/commands/  geocode_cities, build_place_index (offline, one-off), load_stations
 routes/
-  clients.py            cached geocoding (Nominatim/Photon) and routing (OSRM)
+  clients.py            geocoding (offline index, Nominatim/Census/Photon) and routing (OSRM), cached
   corridor.py           stations within N miles of the route, with mile markers
   optimizer.py          greedy cost-optimal refuelling
   planner.py            orchestration and response building
@@ -249,5 +249,6 @@ routes/
 data/
   fuel-prices.csv       the provided price list
   city_geocodes.json    committed city geocode cache
+  us_places.json        offline US place index for user input (Census Gazetteer)
 postman/                Postman collection
 ```

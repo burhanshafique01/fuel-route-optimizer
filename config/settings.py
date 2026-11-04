@@ -134,6 +134,7 @@ REST_FRAMEWORK = {
 
 FUEL_PRICES_CSV = BASE_DIR / "data" / "fuel-prices.csv"
 CITY_GEOCODES_JSON = BASE_DIR / "data" / "city_geocodes.json"
+US_PLACES_JSON = BASE_DIR / "data" / "us_places.json"
 
 FUEL_ROUTE = {
     "VEHICLE_RANGE_MILES": 500.0,
@@ -147,9 +148,13 @@ FUEL_ROUTE = {
         "NOMINATIM_URL", "https://nominatim.openstreetmap.org/search"
     ),
     "PHOTON_URL": os.environ.get("PHOTON_URL", "https://photon.komoot.io/api/"),
+    "CENSUS_GEOCODER_URL": os.environ.get(
+        "CENSUS_GEOCODER_URL",
+        "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress",
+    ),
     "GEOCODER_TIMEOUT_SECONDS": 8,
     "HTTP_TIMEOUT_SECONDS": 20,
     # Outbound HTTP over IPv4 only (avoids long stalls on hosts with broken IPv6).
     "FORCE_IPV4": env_bool("FORCE_IPV4", True),
-    "USER_AGENT": "fuel-route-optimizer/1.0 (assessment project)",
+    "USER_AGENT": "fuel-route-optimizer/1.0 (+https://github.com/burhanshafique01/fuel-route-optimizer)",
 }

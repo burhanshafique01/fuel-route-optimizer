@@ -1,7 +1,9 @@
 """Thin, cached clients for the two free external services.
 
-* Nominatim (OpenStreetMap), with Photon (komoot) as a fallback, turns a
-  free-text place into coordinates.
+* Plain "City, ST" input is resolved offline from ``data/us_places.json``
+  (US Census Gazetteer), so the common case needs no geocoding call at all.
+* Anything else (street addresses, landmarks) goes to Nominatim
+  (OpenStreetMap), then the US Census geocoder, then Photon (komoot).
 * OSRM (public demo server) returns the driving route with full geometry.
 
 A request makes at most three external calls (geocode start, geocode finish,
@@ -11,8 +13,10 @@ route) and zero when the results are already cached.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 import requests
@@ -21,6 +25,7 @@ from django.core.cache import cache
 
 from routes.exceptions import LocationNotFound, RouteNotFound, UpstreamServiceError
 from routes.geo import METERS_PER_MILE, simplify
+from stations.geocoding import US_STATES, normalize_name
 
 CACHE_VERSION = "v2"
 # ~55 m: keeps returned geometry small while staying faithful to the roads.
@@ -30,6 +35,9 @@ COORD_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
 # Generous bounds around the 50 states, used for raw "lat,lon" input.
 US_LAT_RANGE = (18.0, 72.0)
 US_LON_RANGE = (-180.0, -65.0)
+
+STATE_CODES = {name.lower(): code for code, name in US_STATES.items()}
+COUNTRY_SUFFIX = re.compile(r"[,\s]+(usa|us|u\.s\.a?\.?|united states( of america)?)\s*$", re.I)
 
 
 @dataclass(frozen=True)
@@ -102,21 +110,61 @@ def geocode(query: str) -> Location:
     if cached:
         return Location(query=query, **cached)
 
+    local = _local_place(text)
+    if local:
+        return Location(query=query, **local)
+
+    providers = (_nominatim, _census, _photon)
     errors = []
-    for provider in (_nominatim, _photon):
+    for provider in providers:
         try:
             found = provider(text)
         except UpstreamServiceError as exc:
-            errors.append(str(exc.detail))
+            errors.append(f"{provider.__name__.strip('_')}: {exc.detail}")
             continue
         if found:
             cache.set(key, found)
             return Location(query=query, **found)
-        if not errors:
-            break  # A healthy provider found nothing; no need to ask another.
-    if errors and len(errors) == 2:
+    if len(errors) == len(providers):
         raise UpstreamServiceError("Geocoding services are unavailable: " + " | ".join(errors))
     raise LocationNotFound(f"Could not find '{text}' in the USA.")
+
+
+@lru_cache(maxsize=1)
+def _place_index() -> dict[str, list]:
+    path = settings.US_PLACES_JSON
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return {}
+
+
+def _split_city_state(text: str) -> tuple[str, str] | None:
+    """``"Austin, TX"`` / ``"Austin, Texas, USA"`` / ``"Austin TX"`` -> ``("Austin", "TX")``."""
+    text = COUNTRY_SUFFIX.sub("", text).strip(" ,")
+    if "," in text:
+        city, _, state = text.rpartition(",")
+    else:
+        city, _, state = text.rpartition(" ")
+    state = state.strip().rstrip(".")
+    code = state.upper() if state.upper() in US_STATES else STATE_CODES.get(state.lower())
+    city = city.strip(" ,")
+    if not code or not city:
+        return None
+    return city, code
+
+
+def _local_place(text: str) -> dict | None:
+    parsed = _split_city_state(text)
+    if not parsed:
+        return None
+    city, state = parsed
+    hit = _place_index().get(f"{normalize_name(city)}|{state}")
+    if not hit:
+        return None
+    lat, lon, name = hit
+    return {"label": f"{name}, {state}", "lat": lat, "lon": lon}
 
 
 def _nominatim(text: str) -> dict | None:
@@ -133,12 +181,30 @@ def _nominatim(text: str) -> dict | None:
     return None
 
 
+def _census(text: str) -> dict | None:
+    """US Census Bureau geocoder: free, keyless, street addresses only."""
+    if not re.search(r"\d", text):
+        return None  # It only matches addresses with a house number.
+    data = _http_get(
+        _conf("CENSUS_GEOCODER_URL"),
+        {"address": text, "benchmark": "Public_AR_Current", "format": "json"},
+        timeout=_conf("GEOCODER_TIMEOUT_SECONDS"),
+    )
+    result = data.get("result") if isinstance(data, dict) else None
+    for match in (result or {}).get("addressMatches", []):
+        lon, lat = match["coordinates"]["x"], match["coordinates"]["y"]
+        if _in_us_bounds(lat, lon):
+            return {"label": match.get("matchedAddress", text).title(),
+                    "lat": round(lat, 6), "lon": round(lon, 6)}
+    return None
+
+
 def _photon(text: str) -> dict | None:
     data = _http_get(
         _conf("PHOTON_URL"), {"q": text, "limit": 10, "lang": "en"},
         timeout=_conf("GEOCODER_TIMEOUT_SECONDS"),
     )
-    for feature in data.get("features", []):
+    for feature in data.get("features", []) if isinstance(data, dict) else []:
         props = feature.get("properties", {})
         if props.get("countrycode") != "US":
             continue

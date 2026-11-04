@@ -35,8 +35,8 @@ class GeocodeTests(SimpleTestCase):
     def test_result_is_cached(self):
         with mock.patch("routes.clients.requests.get",
                         return_value=fake_response(NOMINATIM_CHICAGO)) as get:
-            first = clients.geocode("Chicago, IL")
-            second = clients.geocode("chicago,   il")
+            first = clients.geocode("Millennium Park, Chicago")
+            second = clients.geocode("millennium park,   chicago")
         self.assertEqual(get.call_count, 1)
         self.assertEqual(first.label, "Chicago, Cook County, Illinois")
         self.assertEqual((second.lat, second.lon), (41.875562, -87.624421))
@@ -56,10 +56,37 @@ class GeocodeTests(SimpleTestCase):
             loc = clients.geocode("Chicago")
         self.assertEqual(loc.label, "Chicago, Illinois")
 
-    def test_both_geocoders_down_is_an_upstream_error(self):
+    def test_all_geocoders_down_is_an_upstream_error(self):
         with mock.patch("routes.clients.requests.get", side_effect=requests.ConnectionError()):
             with self.assertRaises(UpstreamServiceError):
-                clients.geocode("Chicago")
+                clients.geocode("1 Main St, Springfield")
+
+    def test_city_and_state_resolve_offline(self):
+        with mock.patch("routes.clients.requests.get") as get:
+            for text in ("Chicago, IL", "chicago il", "Chicago, Illinois, USA",
+                         "St. Louis, MO", "Saint Louis, Missouri", "New York, NY"):
+                loc = clients.geocode(text)
+                self.assertTrue(clients._in_us_bounds(loc.lat, loc.lon), text)
+        get.assert_not_called()
+        self.assertEqual(clients.geocode("chicago, il").label, "Chicago, IL")
+        self.assertAlmostEqual(clients.geocode("Chicago, IL").lat, 41.84, places=1)
+
+    def test_unknown_city_falls_through_to_online_geocoders(self):
+        with mock.patch("routes.clients.requests.get",
+                        return_value=fake_response(NOMINATIM_CHICAGO)) as get:
+            clients.geocode("Notarealtown, IL")
+        get.assert_called_once()
+
+    def test_census_geocoder_handles_addresses_when_nominatim_is_rate_limited(self):
+        census = {"result": {"addressMatches": [{
+            "matchedAddress": "1600 PENNSYLVANIA AVE NW, WASHINGTON, DC, 20500",
+            "coordinates": {"x": -77.0352, "y": 38.8987},
+        }]}}
+        with mock.patch("routes.clients.requests.get",
+                        side_effect=[fake_response({}, 429), fake_response(census)]):
+            loc = clients.geocode("1600 Pennsylvania Ave NW, Washington, DC")
+        self.assertEqual((loc.lat, loc.lon), (38.8987, -77.0352))
+        self.assertEqual(loc.label, "1600 Pennsylvania Ave Nw, Washington, Dc, 20500")
 
 
 class RouteTests(SimpleTestCase):

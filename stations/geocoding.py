@@ -115,11 +115,11 @@ def save_cache(path: Path, cache: dict[str, list[float] | None]) -> None:
     path.write_text("{\n" + ",\n".join(lines) + "\n}\n", encoding="utf-8")
 
 
-def load_gazetteer(path: Path) -> dict[tuple[str, str], tuple[float, float]]:
-    """Map ``(normalized name, state)`` to the internal point of the largest match."""
-    best: dict[tuple[str, str], tuple[float, float, float, int]] = {}
+def load_gazetteer_named(path: Path) -> dict[tuple[str, str], tuple[float, float, str]]:
+    """Map ``(normalized name, state)`` to ``(lat, lon, display name)`` of the largest match."""
+    best: dict[tuple[str, str], tuple[float, float, float, int, str]] = {}
     with open(path, encoding="utf-8") as fh:
-        reader = csv.reader(fh, delimiter="\t")
+        reader = csv.reader(fh, delimiter="	")
         header = [h.strip() for h in next(reader)]
         col = {h: i for i, h in enumerate(header)}
         for raw in reader:
@@ -138,8 +138,22 @@ def load_gazetteer(path: Path) -> dict[tuple[str, str], tuple[float, float]]:
                 current = best.get(key)
                 # Prefer exact names over aliases, then the largest land area.
                 if current is None or (rank, -land) < (current[3], -current[2]):
-                    best[key] = (lat, lon, land, rank)
-    return {k: (v[0], v[1]) for k, v in best.items()}
+                    best[key] = (lat, lon, land, rank, base)
+    return {k: (v[0], v[1], v[4]) for k, v in best.items()}
+
+
+def load_gazetteer(path: Path) -> dict[tuple[str, str], tuple[float, float]]:
+    """Map ``(normalized name, state)`` to the internal point of the largest match."""
+    return {k: (v[0], v[1]) for k, v in load_gazetteer_named(path).items()}
+
+
+def build_place_index(gazetteers: list[Path]) -> dict[str, list]:
+    """``{"chicago|IL": [lat, lon, "Chicago"]}`` for every US place; earlier files win."""
+    index: dict[str, list] = {}
+    for path in gazetteers:
+        for (name, state), (lat, lon, label) in load_gazetteer_named(path).items():
+            index.setdefault(f"{name}|{state}", [round(lat, 5), round(lon, 5), label])
+    return index
 
 
 def nominatim_city(city: str, state: str, session: requests.Session | None = None):
