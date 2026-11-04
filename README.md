@@ -13,7 +13,7 @@ A Django REST API that plans a truck trip between two US locations. It returns t
 
 ## Contents
 
-1. [Quick start](#quick-start)
+1. [Quick start](#quick-start) (and [deploying to Render](#deploying-to-render))
 2. [API](#api)
 3. [How it works](#how-it-works)
 4. [Design decisions and trade-offs](#design-decisions-and-trade-offs)
@@ -51,6 +51,16 @@ No API keys are needed. All the external services are free and keyless.
 | `OSRM_URL` | `https://router.project-osrm.org` | Point to a self-hosted OSRM |
 | `NOMINATIM_URL` / `PHOTON_URL` | public instances | Geocoders |
 | `FORCE_IPV4` | `true` | Sends outbound HTTP over IPv4 only. This avoids ~20 s stalls on hosts with broken IPv6 |
+
+### Deploying to Render
+
+`render.yaml` is a ready-made Blueprint. To set the service up by hand instead, use these values:
+
+- **Build command:** `pip install -r requirements.txt && python manage.py collectstatic --noinput`
+- **Start command:** `python manage.py migrate --noinput && python manage.py load_stations && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60`
+- **Environment:** `PYTHON_VERSION=3.12.10`, `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY=<random>`, `DJANGO_ALLOWED_HOSTS=.onrender.com`
+
+SQLite lives on Render's temporary disk, so the station table is rebuilt at every start. This takes about a second and needs no network.
 
 ## API
 
