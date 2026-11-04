@@ -1,0 +1,103 @@
+{
+  "info": {
+    "name": "Fuel Route Optimizer",
+    "description": "Cheapest fuel stops for a 500-mile-range, 10-mpg truck between two US locations. Run the server locally (python manage.py runserver) and use the baseUrl variable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000" }
+  ],
+  "item": [
+    {
+      "name": "Plan route: New York → Los Angeles (long trip)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"New York, NY\",\n  \"finish\": \"Los Angeles, CA\"\n}"
+        },
+        "url": "{{baseUrl}}/api/route/"
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));",
+          "const body = pm.response.json();",
+          "pm.test('multiple fuel stops', () => pm.expect(body.fuel_stops.length).to.be.above(1));",
+          "pm.test('no leg longer than 500 miles', () => {",
+          "  const miles = [0, ...body.fuel_stops.map(s => s.route_mile), body.summary.total_distance_miles];",
+          "  for (let i = 1; i < miles.length; i++) pm.expect(miles[i] - miles[i - 1]).to.be.at.most(500.5);",
+          "});",
+          "pm.test('gallons = miles / 10', () => pm.expect(body.summary.total_gallons).to.be.closeTo(body.summary.total_distance_miles / 10, 0.2));",
+          "console.log('Total fuel cost: $' + body.summary.total_fuel_cost, '| map:', body.map_url);"
+        ]}
+      }]
+    },
+    {
+      "name": "Plan route: Chicago → St. Louis (short trip)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"start\": \"Chicago, IL\",\n  \"finish\": \"St. Louis, MO\"\n}"
+        },
+        "url": "{{baseUrl}}/api/route/"
+      }
+    },
+    {
+      "name": "Plan route (GET, coordinates, custom detour)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/route/?start=29.7604,-95.3698&finish=Dallas, TX&max_detour_miles=5",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", ""],
+          "query": [
+            { "key": "start", "value": "29.7604,-95.3698" },
+            { "key": "finish", "value": "Dallas, TX" },
+            { "key": "max_detour_miles", "value": "5" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Error: location outside the USA (400)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"London, UK\",\n  \"finish\": \"New York, NY\"\n}" },
+        "url": "{{baseUrl}}/api/route/"
+      }
+    },
+    {
+      "name": "Error: missing field (400)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"start\": \"Boston, MA\"\n}" },
+        "url": "{{baseUrl}}/api/route/"
+      }
+    },
+    {
+      "name": "Map page (open in browser)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/route/map/?start=New York, NY&finish=Los Angeles, CA",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "route", "map", ""],
+          "query": [
+            { "key": "start", "value": "New York, NY" },
+            { "key": "finish", "value": "Los Angeles, CA" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/health/" }
+    }
+  ]
+}
