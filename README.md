@@ -57,7 +57,7 @@ No API keys are needed. All the external services are free and keyless.
 `render.yaml` is a ready-made Blueprint. To set the service up by hand instead, use these values:
 
 - **Build command:** `pip install -r requirements.txt && python manage.py collectstatic --noinput`
-- **Start command:** `python manage.py migrate --noinput && python manage.py load_stations && gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 60`
+- **Start command:** `bash bin/render-start.sh` (runs migrate, then `load_stations`, then gunicorn)
 - **Environment:** `PYTHON_VERSION=3.12.10`, `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY=<random>`, `DJANGO_ALLOWED_HOSTS=.onrender.com`
 
 SQLite lives on Render's temporary disk, so the station table is rebuilt at every start. This takes about a second and needs no network.
