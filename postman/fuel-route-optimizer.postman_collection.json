@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Fuel Route Optimizer",
-    "description": "Cheapest fuel stops for a 500-mile-range, 10-mpg truck between two US locations. Run the server locally (python manage.py runserver) and use the baseUrl variable.",
+    "description": "Cheapest fuel stops for a 500-mile-range, 10-mpg truck between two US locations. Live: https://fuel-route-optimizer-tvjq.onrender.com (set baseUrl to it), or run locally with python manage.py runserver.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [

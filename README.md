@@ -7,18 +7,34 @@ A Django REST API that plans a truck trip between two US locations. It returns t
 - **A real optimizer.** It uses the greedy "gas station problem" algorithm, which gives the cheapest plan. A randomised test checks it against an exact dynamic program.
 - **Map output.** Each response includes GeoJSON and an encoded polyline. There is also an HTML page that draws the route on a Leaflet map.
 
+## Live demo
+
+Hosted on Render (free plan): **https://fuel-route-optimizer-tvjq.onrender.com/**
+
+The service sleeps when idle, so the first request after a while can take 30–60 s to wake it up.
+
+- Map: [New York → Los Angeles](https://fuel-route-optimizer-tvjq.onrender.com/api/route/map/?start=New%20York%2C%20NY&finish=Los%20Angeles%2C%20CA)
+- Health: [`/api/health/`](https://fuel-route-optimizer-tvjq.onrender.com/api/health/)
+- API:
+
+  ```bash
+  curl -X POST https://fuel-route-optimizer-tvjq.onrender.com/api/route/ -H "Content-Type: application/json" -d '{"start": "Chicago, IL", "finish": "St. Louis, MO"}'
+  ```
+- Postman: set the collection's `baseUrl` variable to `https://fuel-route-optimizer-tvjq.onrender.com`.
+
 ![New York to Los Angeles: 2,794 mi, 18 fuel stops, $847.28](docs/map-new-york-los-angeles.jpg)
 
 ---
 
 ## Contents
 
-1. [Quick start](#quick-start) (and [deploying to Render](#deploying-to-render))
-2. [API](#api)
-3. [How it works](#how-it-works)
-4. [Design decisions and trade-offs](#design-decisions-and-trade-offs)
-5. [Testing](#testing)
-6. [Project layout](#project-layout)
+1. [Live demo](#live-demo)
+2. [Quick start](#quick-start) (and [deploying to Render](#deploying-to-render))
+3. [API](#api)
+4. [How it works](#how-it-works)
+5. [Design decisions and trade-offs](#design-decisions-and-trade-offs)
+6. [Testing](#testing)
+7. [Project layout](#project-layout)
 
 ## Quick start
 
